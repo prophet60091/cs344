@@ -5,4 +5,4 @@ Bash Script to take a tab delimited file of grades for example, and displays ave
 
 may or may not require bash >= version 4
 
-Good project to lern vim on, now evertime I finish a file and want to save I want to hit :w
+Good project to learn vim on, now evertime I finish a file and want to save I want to hit :w
