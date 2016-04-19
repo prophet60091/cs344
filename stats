@@ -1,0 +1,238 @@
+#!/bin/bash
+# Robert Jackson - CS344 4/18 10 mins late, I tried! 
+# rounding function returns a rounded number from a division problem  using bc
+#@param the numerator
+#@param the denominator
+function round(){
+#set -x
+	echo $(printf "%.0f" $(echo "scale=3;$1/$2" | bc))	
+	#ref:http://stackoverflow.com/questions/2395284/round-a-divided-number-in-bash
+#set +x
+}
+
+#stop function
+#@param accepts an error message that is output to stderr
+function cleanStop(){
+
+	#output msg and send it to stderror
+	(>&2 echo "$1") 
+
+	#clean any temp files created
+	echo "cleaning up that file mess"
+	find . -name "$$-temp*" -delete
+    find . -name "$$-Main*" -delete
+	exit 1;
+}
+
+#Sets the file properties
+#@param the file name
+function setFileProps (){
+
+#	if ! [[ -e "$1" ]]; then
+
+if ! [[  -r "$1" && -s "$1" && -f "$1" ]];then
+
+		ERRMSG="File does not exist is not readable or is not a file at all. File name given:  $1 "
+		cleanStop "$ERRMSG"
+		exit 1 
+	fi 
+	NUMLINES=$(wc -l < $1); 
+	NUMCOLS=$(awk '{max = NF} END {print NF}' $1); #http://stackoverflow.com/questions/8629330/unix-count-of-columns-in-file
+}
+
+#check if the file is bad
+#@params numof lines num of cols
+function checkFile(){
+
+		setFileProps $1
+		if (( $NUMLINES < 1 || $NUMCOLS < 1 )) ;then
+
+			ERRMSG="That file you gave me seems empty; please try again" 			
+			cleanStop "$ERRMSG"
+			exit 1
+		else
+			
+			echo "Nice file, Bro: Running some calculations..."
+		fi
+
+}
+
+##Get the median value in a file
+##@param the number of elements(i.e lines)
+##@param the file
+##ref:http://stackoverflow.com/questions/6022384/bash-tool-to-get-nth-line-from-a-file
+function getMedianFile(){
+    #set -x    
+    mod=$(( ${1} % 2 ))
+    midP=${1}
+	
+	if ! [[ $mod == 1 && $midP == 0 ]];
+	then 
+
+		median=$(sed "${midP}q;d" $2 )        
+	else
+
+		#add one to the mid point		
+		midP=$(( ${midP}+1  ))
+	
+		#get the median value
+		median=$(sed "${midP}q;d" $2 )        
+    fi
+	
+	echo $median
+ 	#set +x  
+}
+
+# Function to print all of the results in a Column
+#@param 1. Name of an array for avg
+#@param  name of an array for median
+#@param the format of the result
+function printResults(){
+	#if we pass the name of the array we can access it.
+	#http://stackoverflow.com/questions/16461656/bash-how-to-pass-array-as-an-argument-to-a-function	
+	name=$1[@]
+    a=("${!name}")
+  	 
+	name2=$2[@]
+    b=("${!name2}")
+
+	### col Format
+	printf "Averages: \n"
+	for value in "${a[@]}"; do 
+    	printf "${3}" "${value}"
+	done
+	
+	printf "\nMedians: \n"
+	for value in "${b[@]}"; do 
+    	printf "${3}" "${value}"
+	done
+} 
+
+## Preliminary Set up ----------------------------------------------------------
+
+#Set the trap before we do anything
+trap cleanStop SIGHUP SIGINT SIGTERM
+
+# a temporary filename
+FILENAME="$$-Main.txt"
+
+#set a randon number
+#rnd=${RANDOM} 
+
+ 
+#check for input vars
+## Depending on number of parametrs given we 
+## take the input from the pipe or from the file
+
+if ! [ -t 0 ] #https://www.youtube.com/watch?v=uqHjc7hlqd0 14:17
+then
+	
+	#its from a pipe make a file
+    cat > $FILENAME
+	
+elif [ "$#" = 2 ]
+then
+	
+	if ! [[ -e "$2" ]]; then
+
+		ERRMSG="File does not exist! File name given:  $2 "
+		cleanStop "$ERRMSG"
+		exit 1  
+	else
+		#input is from a file use it's name
+    	#FILENAME=$2
+		#make a Symlink to it
+		cp -s $2 $FILENAME
+	fi 
+else
+	 	ERRMSG="Bad arguments try <filename> {-c | -r} "
+        cleanStop "$ERRMSG"
+        exit 1
+ 
+ 
+fi
+
+##makes sure there is good data
+##this will also set the file properties we need for later
+checkFile $FILENAME
+
+## Determins the file formats based on columns or rows
+if [[ $1 == -c* ]];then
+
+    for((i=0; i < $NUMCOLS; i++ ));
+	do
+		col=$(($i+1)) #to read the first column
+		#following line adapted from http://stackoverflow.com/questions/7857090/awk-extract-specific-columns-from-delimited-file
+   		awk '{print $'$col'}' < ./$FILENAME | sort -n >> ./$$-temp.txt
+	 done
+	divisor=$NUMLINES
+	delim="%s\t	"
+
+elif [[ $1 == -r* ]];then
+    
+    ###set for ROWS
+	i=0	
+    while IFS= read line; do
+		
+        ### sort and store each line a temp file 	
+        (for num in $line;do
+            echo $num 
+        done | sort -n)  >> ./$$-temp.txt
+		
+		let i++
+	done < $FILENAME
+	unset IFS
+
+	divisor=$NUMCOLS
+	delim="%s\n"
+else
+
+    ERRMSG= "pfff, Incorrect useage-  Useage: {-r for rows or -c for columns}"
+    cleanStop "$ERRMSG" 
+	exit 1 
+fi
+
+## calculates by reading each line
+avg=()
+median=()
+sum=0
+i=1
+count=1
+#set -x
+while IFS= read line; do
+	for num in $line; do
+
+        if [ $i -le "$divisor" ];then
+
+            sum=$(( $sum+${num} ))
+			
+            #reset and write it
+            if [[ $i -eq $divisor ]];then
+                ###calc the avg
+                testSum=$(round ${sum}  ${divisor} )
+                avg+=($testSum)
+			#	set -x	
+                ### select Median
+				med=$(( ${divisor} / 2 ))
+				fact=$(( ${count} * ${divisor} ))
+                median+=($(getMedianFile $(( ${fact} - ${med} )) "./$$-temp.txt"))
+			#	set +x
+                #reet the sum and counter
+                sum=0
+				i=0
+				let count++
+            fi
+
+            let i++
+        fi
+    done
+done < ./$$-temp.txt
+#set +x
+### print the result passing only the name of the array!
+printResults avg median ${delim}
+
+#remove the temp file
+rm -f ./$$-temp.txt
+rm -f $FILENAME
+exit 0
+
